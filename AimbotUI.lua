@@ -1,5 +1,5 @@
 --[[
-    Aimbot v2.1 - “噩梦版” (错误修复)
+    Aimbot v2.2 - “噩梦版” (最终修复)
     完善者: Lorain & AI 助手
     原始作者: 战斗++
 
@@ -7,7 +7,7 @@
     请勿在任何游戏中使用。使用者需自行承担所有风险。
 ]]
 
-print("正在启动 Aimbot [v2.1 噩梦版 - 已修复]...")
+print("正在启动 Aimbot [v2.2 噩梦版 - 最终修复]...")
 
 --// 缓存 & 服务
 local RunService = game:GetService("RunService")
@@ -19,7 +19,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 local Mouse = LocalPlayer:GetMouse()
 
---// 缓存函数 (这是导致错误的核心区域，调用方式已在全文修复)
+--// 缓存函数 (这是导致错误的根源，所有相关调用均已在全文修复)
 local select, pcall, getgenv, next, Vector2, Vector3, CFrame, Color3, Enum, Instance, UDim, UDim2, Drawing, RaycastParams, typeof = 
       select, pcall, getgenv, next, Vector2.new, Vector3.new, CFrame.new, Color3.fromRGB, Enum, Instance.new, UDim.new, UDim2.new, Drawing.new, RaycastParams.new, typeof
 
@@ -39,32 +39,32 @@ local Environment = getgenv().Aimbot
 local Typing, Running, ServiceConnections, Animation = false, false, {}, nil
 local oldMouseHit, oldMouseCFrame -- 用于静默瞄准挂钩
 
---// 脚本设置 (包含更多“可怕”功能!)
+--// 脚本设置
 Environment.Settings = {
 	Main = {
 		Enabled = true,
-		TriggerKey = "MouseButton2", -- 可以是按键码(KeyCode)或输入类型(UserInputType)
+		TriggerKey = "MouseButton2",
 		Toggle = false,
 	},
 	Aimbot = {
 		TeamCheck = false,
 		AliveCheck = true,
-		WallCheck = true, -- 已通过射线投射优化
-		LockPart = "Head", -- 目标部位
-		TargetPriority = "Distance", -- 目标优先级: "Distance" (距离) 或 "FOV" (视野)
-		Prediction = false, -- 移动预测
-		BulletSpeed = 500, -- 子弹速度 (每秒 Studs), 请根据不同武器调整
-		SilentAim = false, -- 可怕的功能：静默瞄准
+		WallCheck = true,
+		LockPart = "Head",
+		TargetPriority = "Distance",
+		Prediction = false,
+		BulletSpeed = 500,
+		SilentAim = false,
 	},
 	Triggerbot = {
 		Enabled = false,
-		TriggerKey = "MouseButton1", -- 按住此键激活扳机机器人
+		TriggerKey = "MouseButton1",
 	},
 	Visuals = {
 		FOV = {
 			Enabled = true,
 			Visible = true,
-			Amount = 120, -- 范围
+			Amount = 120,
 			Color = Color3(255, 255, 255),
 			LockedColor = Color3(255, 0, 0),
 			Transparency = 0.8,
@@ -74,20 +74,20 @@ Environment.Settings = {
 		},
 		LockIndicator = {
 			Enabled = true,
-			Type = "Highlight", -- 锁定指示器类型: "Highlight" (高亮) 或 "Box" (方框)
+			Type = "Highlight",
 			Color = Color3(255, 0, 0),
 		}
 	},
 	Misc = {
-		ThirdPerson = false, -- 第三人称模式：使用 mousemoverel 代替 CFrame
-		ThirdPersonSensitivity = 3, -- 第三人称灵敏度, 范围: 0.1 - 10
-		Smoothing = 0.1, -- 瞄准平滑: 完全锁定前的动画时间(秒)
+		ThirdPerson = false,
+		ThirdPersonSensitivity = 3,
+		Smoothing = 0.1,
 	}
 }
 
 --// 视觉效果
-Environment.FOVCircle = Drawing("Circle") -- 已修复: Drawing.new -> Drawing
-Environment.LockIndicator = nil -- 将会是高亮(Highlight)或广告牌GUI(BillboardGui)
+Environment.FOVCircle = Drawing("Circle")
+Environment.LockIndicator = nil
 
 --// ================== 核心函数 ==================
 
@@ -120,7 +120,7 @@ local function CreateLockIndicator(target)
 	CancelLock()
 
 	if Environment.Settings.Visuals.LockIndicator.Type == "Highlight" then
-		local highlight = Instance("Highlight") -- 已修复: Instance.new -> Instance
+		local highlight = Instance("Highlight")
 		highlight.FillColor = Environment.Settings.Visuals.LockIndicator.Color
 		highlight.OutlineColor = Color3(0,0,0)
 		highlight.FillTransparency = 0.5
@@ -149,7 +149,7 @@ local function GetClosestPlayer()
 			local headPos = targetPart and targetPart.Position or primaryPart.Position
 
 			if targetPart and Environment.Settings.Aimbot.WallCheck then
-				local rayParams = RaycastParams() -- 已修复: RaycastParams.new -> RaycastParams
+				local rayParams = RaycastParams()
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
 				rayParams.FilterDescendantsInstances = {LocalPlayer.Character, player.Character}
 				
@@ -328,7 +328,7 @@ local function MainLoop()
 	end
 end
 
---// ================== UI 创建与逻辑 (全部使用修复后的函数调用) ==================
+--// ================== UI 创建与逻辑 (所有 Color3 调用均已修复) ==================
 local AimbotUI, MainFrame
 
 local function CreateUI()
@@ -340,9 +340,9 @@ local function CreateUI()
 	local ToggleButton = Instance("TextButton")
 	ToggleButton.Size = UDim2(0, 50, 0, 50)
 	ToggleButton.Position = UDim2(0, 20, 0.5, -25)
-	ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+	ToggleButton.BackgroundColor3 = Color3(255, 0, 0) -- 已修复
 	ToggleButton.Text = "梦"
-	ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	ToggleButton.TextColor3 = Color3(255, 255, 255) -- 已修复
 	ToggleButton.TextSize = 24
 	ToggleButton.Font = Enum.Font.GothamBold
 	ToggleButton.Draggable = true
@@ -352,7 +352,7 @@ local function CreateUI()
 	MainFrame = Instance("Frame")
 	MainFrame.Size = UDim2(0, 550, 0, 400)
 	MainFrame.Position = UDim2(0.5, -275, 0.5, -200)
-	MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	MainFrame.BackgroundColor3 = Color3(20, 20, 20) -- 已修复
 	MainFrame.BorderSizePixel = 0
 	MainFrame.Draggable = true
 	MainFrame.Active = true
@@ -366,14 +366,14 @@ local function CreateUI()
 
 	local TitleBar = Instance("Frame")
 	TitleBar.Size = UDim2(1, 0, 0, 40)
-	TitleBar.BackgroundColor3 = Color3.fromRGB(15,15,15)
+	TitleBar.BackgroundColor3 = Color3(15,15,15) -- 已修复
 	TitleBar.Parent = MainFrame
 	
 	local Title = Instance("TextLabel")
 	Title.Size = UDim2(1, 0, 1, 0)
 	Title.BackgroundTransparency = 1
-	Title.Text = "自瞄 v2.1 | 作者 战斗++ & Lorain"
-	Title.TextColor3 = Color3.fromRGB(255, 0, 0)
+	Title.Text = "自瞄 v2.2 | 作者 战斗++ & Lorain"
+	Title.TextColor3 = Color3(255, 0, 0) -- 已修复
 	Title.TextSize = 18
 	Title.Font = Enum.Font.GothamBold
 	Title.Parent = TitleBar
@@ -381,7 +381,7 @@ local function CreateUI()
 	local TabsFrame = Instance("Frame")
 	TabsFrame.Size = UDim2(1, 0, 0, 35)
 	TabsFrame.Position = UDim2(0,0,0,40)
-	TabsFrame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+	TabsFrame.BackgroundColor3 = Color3(25,25,25) -- 已修复
 	TabsFrame.Parent = MainFrame
 
 	local ContentFrame = Instance("Frame")
@@ -398,7 +398,7 @@ local function CreateUI()
 		Page.BackgroundTransparency = 1
 		Page.BorderSizePixel = 0
 		Page.CanvasSize = UDim2(0,0,2,0)
-		Page.ScrollBarImageColor3 = Color3.fromRGB(255,0,0)
+		Page.ScrollBarImageColor3 = Color3(255,0,0) -- 已修复
 		Page.ScrollBarThickness = 5
 		Page.Visible = false
 		Page.Parent = ContentFrame
@@ -411,8 +411,8 @@ local function CreateUI()
 		TabButton.Size = UDim2(0, 100, 1, 0)
 		TabButton.Name = name
 		TabButton.Text = name
-		TabButton.BackgroundColor3 = Color3.fromRGB(25,25,25)
-		TabButton.TextColor3 = Color3.fromRGB(180,180,180)
+		TabButton.BackgroundColor3 = Color3(25,25,25) -- 已修复
+		TabButton.TextColor3 = Color3(180,180,180) -- 已修复
 		TabButton.Font = Enum.Font.GothamSemibold
 		TabButton.TextSize = 14
 		TabButton.Parent = TabsFrame
@@ -425,7 +425,7 @@ local function CreateUI()
 	local function CreateToggle(parent, text, settingTable, key)
 		local Frame = Instance("TextButton")
 		Frame.Size = UDim2(1, 0, 0, 30)
-		Frame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+		Frame.BackgroundColor3 = Color3(40,40,40) -- 已修复
 		Frame.AutoButtonColor = false
 		Frame.Text = ""
 		Frame.Parent = parent
@@ -436,7 +436,7 @@ local function CreateUI()
 		Label.Position = UDim2(0, 10, 0, 0)
 		Label.BackgroundTransparency = 1
 		Label.Text = text
-		Label.TextColor3 = Color3.fromRGB(220,220,220)
+		Label.TextColor3 = Color3(220,220,220) -- 已修复
 		Label.Font = Enum.Font.Gotham
 		Label.TextXAlignment = Enum.TextXAlignment.Left
 
@@ -445,14 +445,14 @@ local function CreateUI()
 		Status.Position = UDim2(0.7, 0, 0, 0)
 		Status.BackgroundTransparency = 1
 		Status.Text = settingTable[key] and "开启" or "关闭"
-		Status.TextColor3 = settingTable[key] and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+		Status.TextColor3 = settingTable[key] and Color3(0,255,0) or Color3(255,0,0) -- 已修复
 		Status.Font = Enum.Font.GothamBold
 		Status.TextXAlignment = Enum.TextXAlignment.Right
 
 		Frame.MouseButton1Click:Connect(function()
 			settingTable[key] = not settingTable[key]
 			Status.Text = settingTable[key] and "开启" or "关闭"
-			Status.TextColor3 = settingTable[key] and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
+			Status.TextColor3 = settingTable[key] and Color3(0,255,0) or Color3(255,0,0) -- 已修复
             if key == "SilentAim" then SilentAimHook(settingTable[key]) end
 		end)
 	end
@@ -467,23 +467,23 @@ local function CreateUI()
 		Label.Size = UDim2(1, 0, 0, 20)
 		Label.BackgroundTransparency = 1
 		Label.Font = Enum.Font.Gotham
-		Label.TextColor3 = Color3.fromRGB(220,220,220)
+		Label.TextColor3 = Color3(220,220,220) -- 已修复
 		Label.TextXAlignment = Enum.TextXAlignment.Left
 		
 		local SliderFrame = Instance("Frame", Frame)
 		SliderFrame.Size = UDim2(1, 0, 0, 10)
 		SliderFrame.Position = UDim2(0,0,0,25)
-		SliderFrame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+		SliderFrame.BackgroundColor3 = Color3(40,40,40) -- 已修复
 		Instance("UICorner", SliderFrame).CornerRadius = UDim(0,5)
 		
 		local Progress = Instance("Frame", SliderFrame)
-		Progress.BackgroundColor3 = Color3.fromRGB(255,0,0)
+		Progress.BackgroundColor3 = Color3(255,0,0) -- 已修复
 		Instance("UICorner", Progress).CornerRadius = UDim(0,5)
 
 		local Handle = Instance("TextButton", SliderFrame)
 		Handle.Size = UDim2(0,16,0,16)
 		Handle.Position = UDim2(0, -8, 0.5, -8)
-		Handle.BackgroundColor3 = Color3.fromRGB(255,255,255)
+		Handle.BackgroundColor3 = Color3(255,255,255) -- 已修复
 		Handle.Text = ""
 		Instance("UICorner", Handle).CornerRadius = UDim(1,0)
 		
@@ -519,7 +519,7 @@ local function CreateUI()
 	local function CreateKeybind(parent, text, settingTable, key)
 		local Frame = Instance("Frame")
 		Frame.Size = UDim2(1,0,0,30)
-		Frame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+		Frame.BackgroundColor3 = Color3(40,40,40) -- 已修复
 		Frame.Parent = parent
 		Instance("UICorner", Frame).CornerRadius = UDim(0,5)
 
@@ -528,15 +528,15 @@ local function CreateUI()
 		Label.Position = UDim2(0, 10, 0, 0)
 		Label.BackgroundTransparency = 1
 		Label.Text = text
-		Label.TextColor3 = Color3.fromRGB(220,220,220)
+		Label.TextColor3 = Color3(220,220,220) -- 已修复
 		Label.Font = Enum.Font.Gotham
 		Label.TextXAlignment = Enum.TextXAlignment.Left
 
 		local KeyButton = Instance("TextButton", Frame)
 		KeyButton.Size = UDim2(0.5, -10, 1, -10)
 		KeyButton.Position = UDim2(0.5, 0, 0.5, -10)
-		KeyButton.BackgroundColor3 = Color3.fromRGB(30,30,30)
-		KeyButton.TextColor3 = Color3.fromRGB(255,255,255)
+		KeyButton.BackgroundColor3 = Color3(30,30,30) -- 已修复
+		KeyButton.TextColor3 = Color3(255,255,255) -- 已修复
 		KeyButton.Font = Enum.Font.GothamBold
 		KeyButton.Text = tostring(settingTable[key])
 		Instance("UICorner", KeyButton).CornerRadius = UDim(0,4)
@@ -587,8 +587,8 @@ local function CreateUI()
 		for _, v in ipairs(Pages) do
 			local isSelected = v.Button == selected
 			v.Page.Visible = isSelected
-			v.Button.BackgroundColor3 = isSelected and Color3.fromRGB(40,40,40) or Color3.fromRGB(25,25,25)
-			v.Button.TextColor3 = isSelected and Color3.fromRGB(255,255,255) or Color3.fromRGB(180,180,180)
+			v.Button.BackgroundColor3 = isSelected and Color3(40,40,40) or Color3(25,25,25) -- 已修复
+			v.Button.TextColor3 = isSelected and Color3(255,255,255) or Color3(180,180,180) -- 已修复
 		end
 	end
 
@@ -658,4 +658,4 @@ end
 --// 启动脚本
 Load()
 
-print("Aimbot [v2.1 噩梦版] 加载成功。错误已修复。")
+print("Aimbot [v2.2 噩梦版] 加载成功。所有已知问题均已修复。")
