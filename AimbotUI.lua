@@ -1,661 +1,433 @@
 --[[
-    Aimbot v2.2 - “噩梦版” (最终修复)
-    完善者: Lorain & AI 助手
-    原始作者: 战斗++
-
-    免责声明: 此脚本仅用于技术学习和研究目的。在游戏中使用此类工具会违反服务条款并可能导致账户封禁。
-    请勿在任何游戏中使用。使用者需自行承担所有风险。
+    通用辅助中心 (最终修复版)
+    功能：自瞄修复 + 队友/敌人颜色分离 + 骨骼透视
+    适配：Synapse X, Krnl, Fluxus, Electron
 ]]
 
-print("正在启动 Aimbot [v2.2 噩梦版 - 最终修复]...")
-
---// 缓存 & 服务
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local Players = game:GetService("Players")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-local Mouse = LocalPlayer:GetMouse()
-
---// 缓存函数 (这是导致错误的根源，所有相关调用均已在全文修复)
-local select, pcall, getgenv, next, Vector2, Vector3, CFrame, Color3, Enum, Instance, UDim, UDim2, Drawing, RaycastParams, typeof = 
-      select, pcall, getgenv, next, Vector2.new, Vector3.new, CFrame.new, Color3.fromRGB, Enum, Instance.new, UDim.new, UDim2.new, Drawing.new, RaycastParams.new, typeof
-
-local mathclamp, mathhuge = math.clamp, math.huge
-
---// 防止多进程运行
-pcall(function()
-	getgenv().Aimbot.Functions:Exit()
-	print("已终止旧的 Aimbot 进程。")
+-- 1. 尝试加载 UI 库 (多源容错)
+local Success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 end)
 
---// 环境
-getgenv().Aimbot = {}
-local Environment = getgenv().Aimbot
+if not Success then
+    -- 如果主链接失败，尝试备用链接
+    Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+end
 
---// 变量
-local Typing, Running, ServiceConnections, Animation = false, false, {}, nil
-local oldMouseHit, oldMouseCFrame -- 用于静默瞄准挂钩
+local Window = Rayfield:CreateWindow({
+    Name = "通用辅助中心 | 最终修复版",
+    LoadingTitle = "正在加载脚本...",
+    LoadingSubtitle = "自瞄 + 队友染色系统",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "UniversalHub_V4",
+        FileName = "Config"
+    },
+    Discord = { Enabled = false },
+    KeySystem = false,
+})
 
---// 脚本设置
-Environment.Settings = {
-	Main = {
-		Enabled = true,
-		TriggerKey = "MouseButton2",
-		Toggle = false,
-	},
-	Aimbot = {
-		TeamCheck = false,
-		AliveCheck = true,
-		WallCheck = true,
-		LockPart = "Head",
-		TargetPriority = "Distance",
-		Prediction = false,
-		BulletSpeed = 500,
-		SilentAim = false,
-	},
-	Triggerbot = {
-		Enabled = false,
-		TriggerKey = "MouseButton1",
-	},
-	Visuals = {
-		FOV = {
-			Enabled = true,
-			Visible = true,
-			Amount = 120,
-			Color = Color3(255, 255, 255),
-			LockedColor = Color3(255, 0, 0),
-			Transparency = 0.8,
-			Sides = 60,
-			Thickness = 1,
-			Filled = false,
-		},
-		LockIndicator = {
-			Enabled = true,
-			Type = "Highlight",
-			Color = Color3(255, 0, 0),
-		}
-	},
-	Misc = {
-		ThirdPerson = false,
-		ThirdPersonSensitivity = 3,
-		Smoothing = 0.1,
-	}
+--// 服务引用
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Camera = Workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+--// 全局设置表
+local Settings = {
+    Aimbot = {
+        Enabled = false,
+        TeamCheck = true, -- 自瞄强制不锁队友
+        WallCheck = false,
+        AimPart = "Head", -- 瞄准部位
+        Smoothness = 0.5, -- 平滑度
+        FOV = 150,
+        ShowFOV = true,
+        FOVColor = Color3.fromRGB(255, 255, 255)
+    },
+    ESP = {
+        Enabled = false,
+        Boxes = false,
+        Names = false,
+        Health = false,
+        Tracers = false,
+        Skeleton = false,
+        ShowTeammates = true, -- 是否显示队友
+        EnemyColor = Color3.fromRGB(255, 40, 40), -- 敌人红色
+        TeamColor = Color3.fromRGB(40, 255, 40),  -- 队友绿色
+        TextSize = 13
+    },
+    Misc = {
+        WalkSpeed = 16,
+        JumpPower = 50
+    }
 }
 
---// 视觉效果
-Environment.FOVCircle = Drawing("Circle")
-Environment.LockIndicator = nil
+--// 绘图对象 (FOV圈)
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 1
+FOVCircle.NumSides = 60
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+FOVCircle.Visible = false
 
---// ================== 核心函数 ==================
+--// 核心辅助函数
 
-local function CancelLock()
-	Environment.Locked = nil
-	if Animation then Animation:Cancel() Animation = nil end
-	
-	if Environment.FOVCircle then
-		Environment.FOVCircle.Color = Environment.Settings.Visuals.FOV.Color
-	end
-
-	if Environment.LockIndicator then
-		if Environment.LockIndicator.ClassName == "Highlight" then
-			Environment.LockIndicator.Enabled = false
-		elseif Environment.LockIndicator.Parent ~= nil then
-			Environment.LockIndicator:Destroy()
-		end
-		Environment.LockIndicator = nil
-	end
+-- 判断玩家是否存活
+local function IsAlive(Player)
+    return Player and Player.Character and Player.Character:FindFirstChild("Humanoid") and Player.Character.Humanoid.Health > 0
 end
 
-local function CreateLockIndicator(target)
-	if not Environment.Settings.Visuals.LockIndicator.Enabled or not target or not target.Character then return end
-	
-	if Environment.LockIndicator and Environment.LockIndicator.Parent == target.Character then
-		if Environment.LockIndicator.ClassName == "Highlight" then Environment.LockIndicator.Enabled = true end
-		return
-	end
-	
-	CancelLock()
-
-	if Environment.Settings.Visuals.LockIndicator.Type == "Highlight" then
-		local highlight = Instance("Highlight")
-		highlight.FillColor = Environment.Settings.Visuals.LockIndicator.Color
-		highlight.OutlineColor = Color3(0,0,0)
-		highlight.FillTransparency = 0.5
-		highlight.OutlineTransparency = 0.2
-		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-		highlight.Parent = target.Character
-		Environment.LockIndicator = highlight
-	end
+-- 判断是否为队友
+local function IsTeammate(Player)
+    if LocalPlayer.Team == nil or Player.Team == nil then return false end
+    return LocalPlayer.Team == Player.Team
 end
 
+-- 获取最近的敌人 (用于自瞄)
+local function GetClosestTarget()
+    local ClosestPlayer = nil
+    local ShortestDistance = Settings.Aimbot.FOV
+    local MousePos = UserInputService:GetMouseLocation()
 
-local function GetClosestPlayer()
-	local closestPlayer, requiredMetric = nil, mathhuge
-	local fovRadius = Environment.Settings.Visuals.FOV.Enabled and Environment.Settings.Visuals.FOV.Amount or mathhuge
-	local mousePos = UserInputService:GetMouseLocation()
-
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") then
-			if Environment.Settings.Aimbot.TeamCheck and player.Team == LocalPlayer.Team then continue end
-			if Environment.Settings.Aimbot.AliveCheck and player.Character.Humanoid.Health <= 0 then continue end
-
-			local primaryPart = player.Character.PrimaryPart
-			if not primaryPart then continue end
-
-			local targetPart = player.Character:FindFirstChild(Environment.Settings.Aimbot.LockPart)
-			local headPos = targetPart and targetPart.Position or primaryPart.Position
-
-			if targetPart and Environment.Settings.Aimbot.WallCheck then
-				local rayParams = RaycastParams()
-				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-				rayParams.FilterDescendantsInstances = {LocalPlayer.Character, player.Character}
-				
-				local raycastResult = workspace:Raycast(Camera.CFrame.Position, (headPos - Camera.CFrame.Position).Unit * 2000, rayParams)
-				if raycastResult and raycastResult.Instance.Parent ~= player.Character then
-					targetPart = player.Character:FindFirstChild("HumanoidRootPart")
-					headPos = targetPart and targetPart.Position or primaryPart.Position
-					
-					local torsoRaycast = workspace:Raycast(Camera.CFrame.Position, (headPos - Camera.CFrame.Position).Unit * 2000, rayParams)
-					if torsoRaycast and torsoRaycast.Instance.Parent ~= player.Character then
-						continue
-					end
-				end
-			end
-			
-			local vector, onScreen = Camera:WorldToViewportPoint(headPos)
-			if onScreen then
-				local metric
-				if Environment.Settings.Aimbot.TargetPriority == "FOV" then
-					metric = (Vector2(mousePos.X, mousePos.Y) - Vector2(vector.X, vector.Y)).Magnitude
-					if metric < requiredMetric and metric <= fovRadius then
-						requiredMetric = metric
-						closestPlayer = player
-					end
-				else 
-					metric = (Camera.CFrame.Position - headPos).Magnitude
-					if metric < requiredMetric then
-						requiredMetric = metric
-						closestPlayer = player
-					end
-				end
-			end
-		end
-	end
-
-	if Environment.Locked then
-		if not Environment.Locked.Parent or not Environment.Locked.Character or Environment.Locked.Character.Humanoid.Health <= 0 then
-			CancelLock()
-		else
-			local vector, onScreen = Camera:WorldToViewportPoint(Environment.Locked.Character:FindFirstChild(Environment.Settings.Aimbot.LockPart).Position)
-			if not onScreen or (Vector2(mousePos.X, mousePos.Y) - Vector2(vector.X, vector.Y)).Magnitude > fovRadius then
-				CancelLock()
-			end
-		end
-	end
-
-	if closestPlayer then
-		Environment.Locked = closestPlayer
-		CreateLockIndicator(closestPlayer)
-	end
-end
-
-local function HandleTriggerbot()
-    if not Environment.Settings.Triggerbot.Enabled or not UserInputService:IsKeyDown(Enum.KeyCode[Environment.Settings.Triggerbot.TriggerKey]) then
-        return
-    end
-
-    local target = Mouse.Target
-    if target and target.Parent and target.Parent:FindFirstChild("Humanoid") then
-        local player = Players:GetPlayerFromCharacter(target.Parent)
-        if player and player ~= LocalPlayer then
-            if Environment.Settings.Aimbot.TeamCheck and player.Team == LocalPlayer.Team then return end
+    for _, Player in pairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer and IsAlive(Player) then
+            -- 自瞄逻辑：如果是队友且开启了队伍检测，则跳过
+            if Settings.Aimbot.TeamCheck and IsTeammate(Player) then continue end
             
-            pcall(function()
-                mouse1press()
-                task.wait(0.05)
-                mouse1release()
-            end)
-        end
-    end
-end
+            local Character = Player.Character
+            local Part = Character:FindFirstChild(Settings.Aimbot.AimPart) or Character:FindFirstChild("Head")
+            
+            if Part then
+                local ScreenPos, OnScreen = Camera:WorldToViewportPoint(Part.Position)
+                local Distance = (Vector2.new(ScreenPos.X, ScreenPos.Y) - MousePos).Magnitude
+                
+                if OnScreen and Distance < ShortestDistance then
+                    -- 墙体检测
+                    if Settings.Aimbot.WallCheck then
+                        local RayParams = RaycastParams.new()
+                        RayParams.FilterDescendantsInstances = {LocalPlayer.Character, Character}
+                        RayParams.FilterType = Enum.RaycastFilterType.Blacklist
+                        local RayHit = Workspace:Raycast(Camera.CFrame.Position, (Part.Position - Camera.CFrame.Position), RayParams)
+                        if RayHit then continue end
+                    end
 
-local function SilentAimHook(activate)
-    if activate then
-        if getfenv(Mouse.Hit).script then return end
-        oldMouseHit = Mouse.Hit
-		oldMouseCFrame = Mouse.CFrame
-
-        local mt = getrawmetatable(Mouse)
-        local oldNamecall = mt.__namecall
-        
-        setreadonly(mt, false)
-        mt.__namecall = newcclosure(function(...)
-            local args = {...}
-            local method = getnamecallmethod()
-            if method == "Hit" and Environment.Locked and Running and Environment.Settings.Aimbot.SilentAim then
-                local targetPart = Environment.Locked.Character:FindFirstChild(Environment.Settings.Aimbot.LockPart) or Environment.Locked.Character.PrimaryPart
-                if targetPart then
-					local aimPos = targetPart.Position
-					if Environment.Settings.Aimbot.Prediction then
-						local distance = (Camera.CFrame.Position - aimPos).Magnitude
-						local timeToTarget = distance / Environment.Settings.Aimbot.BulletSpeed
-						aimPos = aimPos + (Environment.Locked.Character.PrimaryPart.AssemblyLinearVelocity * timeToTarget)
-					end
-                    return CFrame(aimPos)
+                    ShortestDistance = Distance
+                    ClosestPlayer = Player
                 end
             end
-            return oldNamecall(...)
-        end)
-        setreadonly(mt, true)
-        print("静默瞄准挂钩已附加。")
-    else
-		if not oldMouseHit then return end
-		local mt = getrawmetatable(Mouse)
-        local oldNamecall = mt.__namecall
+        end
+    end
+    return ClosestPlayer
+end
 
-		setreadonly(mt, false)
-		mt.__namecall = oldNamecall 
-		setreadonly(mt, true)
-		
-        oldMouseHit = nil
-        print("静默瞄准挂钩已分离。")
+--// 渲染循环 (每帧运行)
+RunService.RenderStepped:Connect(function()
+    -- 1. 更新 FOV 圆圈位置
+    FOVCircle.Visible = Settings.Aimbot.ShowFOV and Settings.Aimbot.Enabled
+    FOVCircle.Radius = Settings.Aimbot.FOV
+    FOVCircle.Position = UserInputService:GetMouseLocation()
+    FOVCircle.Color = Settings.Aimbot.FOVColor
+
+    -- 2. 自瞄执行逻辑
+    if Settings.Aimbot.Enabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+        local Target = GetClosestTarget()
+        if Target and Target.Character then
+            local Part = Target.Character:FindFirstChild(Settings.Aimbot.AimPart)
+            if Part then
+                -- 平滑锁定
+                local TargetPos = Part.Position
+                local CurrentCF = Camera.CFrame
+                local GoalCF = CFrame.new(CurrentCF.Position, TargetPos)
+                
+                -- Lerp 插值实现平滑 (1 - Smoothness)
+                Camera.CFrame = CurrentCF:Lerp(GoalCF, 1 - Settings.Aimbot.Smoothness)
+            end
+        end
+    end
+end)
+
+--// ESP (透视) 系统 - 包含队友染色
+local ESP_Storage = {}
+
+local function RemoveESP(Player)
+    if ESP_Storage[Player] then
+        for _, v in pairs(ESP_Storage[Player]) do v:Remove() end
+        ESP_Storage[Player] = nil
     end
 end
 
---// ================== 主循环 ==================
-
-local function MainLoop()
-	if Environment.Settings.Visuals.FOV.Enabled and Environment.Settings.Main.Enabled then
-		local fov = Environment.Settings.Visuals.FOV
-		Environment.FOVCircle.Radius = fov.Amount
-		Environment.FOVCircle.Thickness = fov.Thickness
-		Environment.FOVCircle.Filled = fov.Filled
-		Environment.FOVCircle.NumSides = fov.Sides
-		Environment.FOVCircle.Color = Environment.Locked and fov.LockedColor or fov.Color
-		Environment.FOVCircle.Transparency = fov.Transparency
-		Environment.FOVCircle.Visible = fov.Visible
-		Environment.FOVCircle.Position = UserInputService:GetMouseLocation()
-	else
-		Environment.FOVCircle.Visible = false
-	end
-
-	HandleTriggerbot()
-
-	if Running and Environment.Settings.Main.Enabled then
-		if not Environment.Locked then
-			GetClosestPlayer()
-		end
-
-		if Environment.Locked then
-			local targetPart = Environment.Locked.Character:FindFirstChild(Environment.Settings.Aimbot.LockPart) or Environment.Locked.Character.PrimaryPart
-			if not targetPart then CancelLock() return end
-
-			local aimPosition = targetPart.Position
-
-			if Environment.Settings.Aimbot.Prediction then
-				local distance = (Camera.CFrame.Position - aimPosition).Magnitude
-				if Environment.Settings.Aimbot.BulletSpeed > 0 then
-					local timeToTarget = distance / Environment.Settings.Aimbot.BulletSpeed
-					aimPosition = aimPosition + (Environment.Locked.Character.PrimaryPart.AssemblyLinearVelocity * timeToTarget)
-				end
-			end
-			
-			if Environment.Settings.Aimbot.SilentAim then
-				-- 静默瞄准在挂钩函数中处理
-			elseif Environment.Settings.Misc.ThirdPerson then
-				local sensitivity = mathclamp(Environment.Settings.Misc.ThirdPersonSensitivity, 0.1, 10)
-				local vector = Camera:WorldToViewportPoint(aimPosition)
-				local mousePos = UserInputService:GetMouseLocation()
-				mousemoverel((vector.X - mousePos.X) * sensitivity, (vector.Y - mousePos.Y) * sensitivity)
-			else
-				local aimCFrame = CFrame(Camera.CFrame.Position, aimPosition)
-				if Environment.Settings.Misc.Smoothing > 0 then
-					if Animation then Animation:Cancel() end
-					Animation = TweenService:Create(Camera, TweenInfo.new(Environment.Settings.Misc.Smoothing, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = aimCFrame})
-					Animation:Play()
-				else
-					Camera.CFrame = aimCFrame
-				end
-			end
-		end
-	else
-		if Environment.Locked then
-			CancelLock()
-		end
-	end
+local function CreateESP(Player)
+    local Objs = {
+        Box = Drawing.new("Square"),
+        Name = Drawing.new("Text"),
+        Tracer = Drawing.new("Line"),
+        HealthBar = Drawing.new("Line"),
+        HealthOutline = Drawing.new("Line")
+    }
+    Objs.Box.Thickness = 1
+    Objs.Box.Filled = false
+    Objs.Name.Center = true
+    Objs.Name.Outline = true
+    Objs.Tracer.Thickness = 1
+    
+    ESP_Storage[Player] = Objs
 end
 
---// ================== UI 创建与逻辑 (所有 Color3 调用均已修复) ==================
-local AimbotUI, MainFrame
+RunService.RenderStepped:Connect(function()
+    for _, Player in pairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer then
+            if not ESP_Storage[Player] then CreateESP(Player) end
+            
+            local Objs = ESP_Storage[Player]
+            local Char = Player.Character
+            local IsAlly = IsTeammate(Player)
+            
+            -- 决定是否绘制：玩家必须存活 + 透视开启
+            local ShouldDraw = Settings.ESP.Enabled and IsAlive(Player)
 
-local function CreateUI()
-	AimbotUI = Instance("ScreenGui")
-	AimbotUI.Name = "AimbotUI_Nightmare_CN"
-	AimbotUI.ResetOnSpawn = false
-	AimbotUI.ZIndexBehavior = Enum.ZIndexBehavior.Global
-	
-	local ToggleButton = Instance("TextButton")
-	ToggleButton.Size = UDim2(0, 50, 0, 50)
-	ToggleButton.Position = UDim2(0, 20, 0.5, -25)
-	ToggleButton.BackgroundColor3 = Color3(255, 0, 0) -- 已修复
-	ToggleButton.Text = "梦"
-	ToggleButton.TextColor3 = Color3(255, 255, 255) -- 已修复
-	ToggleButton.TextSize = 24
-	ToggleButton.Font = Enum.Font.GothamBold
-	ToggleButton.Draggable = true
-	ToggleButton.Parent = AimbotUI
-	Instance("UICorner", ToggleButton).CornerRadius = UDim(1,0)
+            -- 如果不显示队友且是队友，则不绘制
+            if IsAlly and not Settings.ESP.ShowTeammates then ShouldDraw = false end
 
-	MainFrame = Instance("Frame")
-	MainFrame.Size = UDim2(0, 550, 0, 400)
-	MainFrame.Position = UDim2(0.5, -275, 0.5, -200)
-	MainFrame.BackgroundColor3 = Color3(20, 20, 20) -- 已修复
-	MainFrame.BorderSizePixel = 0
-	MainFrame.Draggable = true
-	MainFrame.Active = true
-	MainFrame.Visible = false
-	MainFrame.Parent = AimbotUI
-	Instance("UICorner", MainFrame).CornerRadius = UDim(0, 8)
-	
-	ToggleButton.MouseButton1Click:Connect(function()
-		MainFrame.Visible = not MainFrame.Visible
-	end)
+            if ShouldDraw and Char and Char:FindFirstChild("HumanoidRootPart") and Char:FindFirstChild("Head") then
+                local HRP = Char.HumanoidRootPart
+                local Head = Char.Head
+                local Hum = Char.Humanoid
+                
+                local Pos, OnScreen = Camera:WorldToViewportPoint(HRP.Position)
+                
+                if OnScreen then
+                    -- 计算颜色：队友=绿，敌人=红
+                    local DrawColor = IsAlly and Settings.ESP.TeamColor or Settings.ESP.EnemyColor
 
-	local TitleBar = Instance("Frame")
-	TitleBar.Size = UDim2(1, 0, 0, 40)
-	TitleBar.BackgroundColor3 = Color3(15,15,15) -- 已修复
-	TitleBar.Parent = MainFrame
-	
-	local Title = Instance("TextLabel")
-	Title.Size = UDim2(1, 0, 1, 0)
-	Title.BackgroundTransparency = 1
-	Title.Text = "自瞄 v2.2 | 作者 战斗++ & Lorain"
-	Title.TextColor3 = Color3(255, 0, 0) -- 已修复
-	Title.TextSize = 18
-	Title.Font = Enum.Font.GothamBold
-	Title.Parent = TitleBar
+                    local HeadPos = Camera:WorldToViewportPoint(Head.Position + Vector3.new(0, 0.5, 0))
+                    local LegPos = Camera:WorldToViewportPoint(HRP.Position - Vector3.new(0, 3, 0))
+                    local Height = LegPos.Y - HeadPos.Y
+                    local Width = Height / 2
 
-	local TabsFrame = Instance("Frame")
-	TabsFrame.Size = UDim2(1, 0, 0, 35)
-	TabsFrame.Position = UDim2(0,0,0,40)
-	TabsFrame.BackgroundColor3 = Color3(25,25,25) -- 已修复
-	TabsFrame.Parent = MainFrame
+                    -- 应用颜色
+                    Objs.Box.Color = DrawColor
+                    Objs.Name.Color = DrawColor
+                    Objs.Tracer.Color = DrawColor
 
-	local ContentFrame = Instance("Frame")
-	ContentFrame.Size = UDim2(1, -20, 1, -95)
-	ContentFrame.Position = UDim2(0,10,0,85)
-	ContentFrame.BackgroundTransparency = 1
-	ContentFrame.Parent = MainFrame
-	
-	local Pages = {}
+                    -- 绘制方框
+                    Objs.Box.Visible = Settings.ESP.Boxes
+                    Objs.Box.Size = Vector2.new(Width, Height)
+                    Objs.Box.Position = Vector2.new(Pos.X - Width/2, HeadPos.Y)
 
-	local function CreateTab(name)
-		local Page = Instance("ScrollingFrame")
-		Page.Size = UDim2(1, 0, 1, 0)
-		Page.BackgroundTransparency = 1
-		Page.BorderSizePixel = 0
-		Page.CanvasSize = UDim2(0,0,2,0)
-		Page.ScrollBarImageColor3 = Color3(255,0,0) -- 已修复
-		Page.ScrollBarThickness = 5
-		Page.Visible = false
-		Page.Parent = ContentFrame
+                    -- 绘制名字
+                    Objs.Name.Visible = Settings.ESP.Names
+                    Objs.Name.Text = Player.Name .. (IsAlly and " [队友]" or "")
+                    Objs.Name.Position = Vector2.new(Pos.X, HeadPos.Y - 15)
+                    Objs.Name.Size = Settings.ESP.TextSize
 
-		local ListLayout = Instance("UIListLayout", Page)
-		ListLayout.Padding = UDim(0, 10)
-		ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+                    -- 绘制射线
+                    Objs.Tracer.Visible = Settings.ESP.Tracers
+                    Objs.Tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+                    Objs.Tracer.To = Vector2.new(Pos.X, LegPos.Y)
+                    
+                    -- 绘制血条 (颜色基于血量百分比)
+                    if Settings.ESP.Health then
+                        Objs.HealthOutline.Visible = true
+                        Objs.HealthBar.Visible = true
+                        local HP = Hum.Health / Hum.MaxHealth
+                        local BarX = Pos.X - Width/2 - 5
+                        
+                        Objs.HealthOutline.From = Vector2.new(BarX, HeadPos.Y)
+                        Objs.HealthOutline.To = Vector2.new(BarX, LegPos.Y)
+                        Objs.HealthOutline.Color = Color3.new(0,0,0)
+                        Objs.HealthOutline.Thickness = 3
+                        
+                        Objs.HealthBar.From = Vector2.new(BarX, LegPos.Y)
+                        Objs.HealthBar.To = Vector2.new(BarX, LegPos.Y - (Height * HP))
+                        Objs.HealthBar.Color = Color3.fromHSV(HP * 0.3, 1, 1) -- 动态血量颜色
+                        Objs.HealthBar.Thickness = 1
+                    else
+                        Objs.HealthOutline.Visible = false
+                        Objs.HealthBar.Visible = false
+                    end
+                else
+                    for _, v in pairs(Objs) do v.Visible = false end
+                end
+            else
+                for _, v in pairs(Objs) do v.Visible = false end
+            end
+        else
+            RemoveESP(Player)
+        end
+    end
+end)
 
-		local TabButton = Instance("TextButton")
-		TabButton.Size = UDim2(0, 100, 1, 0)
-		TabButton.Name = name
-		TabButton.Text = name
-		TabButton.BackgroundColor3 = Color3(25,25,25) -- 已修复
-		TabButton.TextColor3 = Color3(180,180,180) -- 已修复
-		TabButton.Font = Enum.Font.GothamSemibold
-		TabButton.TextSize = 14
-		TabButton.Parent = TabsFrame
-		
-		table.insert(Pages, {Button=TabButton, Page=Page})
-		
-		return Page
-	end
+Players.PlayerRemoving:Connect(RemoveESP)
 
-	local function CreateToggle(parent, text, settingTable, key)
-		local Frame = Instance("TextButton")
-		Frame.Size = UDim2(1, 0, 0, 30)
-		Frame.BackgroundColor3 = Color3(40,40,40) -- 已修复
-		Frame.AutoButtonColor = false
-		Frame.Text = ""
-		Frame.Parent = parent
-		Instance("UICorner", Frame).CornerRadius = UDim(0,5)
+--// 骨骼透视 (Skeleton) - 同样支持队友染色
+local SkeletonLines = {}
+local SkeletonLinks = {{"Head","UpperTorso"},{"UpperTorso","LowerTorso"},{"LowerTorso","LeftUpperLeg"},{"LeftUpperLeg","LeftLowerLeg"},{"LeftLowerLeg","LeftFoot"},{"LowerTorso","RightUpperLeg"},{"RightUpperLeg","RightLowerLeg"},{"RightLowerLeg","RightFoot"},{"UpperTorso","LeftUpperArm"},{"LeftUpperArm","LeftLowerArm"},{"LeftLowerArm","LeftHand"},{"UpperTorso","RightUpperArm"},{"RightUpperArm","RightLowerArm"},{"RightLowerArm","RightHand"}}
 
-		local Label = Instance("TextLabel", Frame)
-		Label.Size = UDim2(0.7, 0, 1, 0)
-		Label.Position = UDim2(0, 10, 0, 0)
-		Label.BackgroundTransparency = 1
-		Label.Text = text
-		Label.TextColor3 = Color3(220,220,220) -- 已修复
-		Label.Font = Enum.Font.Gotham
-		Label.TextXAlignment = Enum.TextXAlignment.Left
+RunService.RenderStepped:Connect(function()
+    for i, v in pairs(SkeletonLines) do v:Remove() end
+    SkeletonLines = {}
+    
+    if not Settings.ESP.Enabled or not Settings.ESP.Skeleton then return end
+    
+    for _, Player in pairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer and IsAlive(Player) then
+            local IsAlly = IsTeammate(Player)
+            
+            -- 如果设置不显示队友，则跳过
+            if IsAlly and not Settings.ESP.ShowTeammates then continue end
+            
+            local DrawColor = IsAlly and Settings.ESP.TeamColor or Settings.ESP.EnemyColor
+            local Char = Player.Character
+            
+            for _, Link in pairs(SkeletonLinks) do
+                local P1 = Char:FindFirstChild(Link[1])
+                local P2 = Char:FindFirstChild(Link[2])
+                if P1 and P2 then
+                    local Pos1, On1 = Camera:WorldToViewportPoint(P1.Position)
+                    local Pos2, On2 = Camera:WorldToViewportPoint(P2.Position)
+                    if On1 or On2 then
+                        local L = Drawing.new("Line")
+                        L.From = Vector2.new(Pos1.X, Pos1.Y)
+                        L.To = Vector2.new(Pos2.X, Pos2.Y)
+                        L.Color = DrawColor
+                        L.Thickness = 1
+                        L.Visible = true
+                        table.insert(SkeletonLines, L)
+                    end
+                end
+            end
+        end
+    end
+end)
 
-		local Status = Instance("TextLabel", Frame)
-		Status.Size = UDim2(0.3, -10, 1, 0)
-		Status.Position = UDim2(0.7, 0, 0, 0)
-		Status.BackgroundTransparency = 1
-		Status.Text = settingTable[key] and "开启" or "关闭"
-		Status.TextColor3 = settingTable[key] and Color3(0,255,0) or Color3(255,0,0) -- 已修复
-		Status.Font = Enum.Font.GothamBold
-		Status.TextXAlignment = Enum.TextXAlignment.Right
+--// UI 界面构建 (Rayfield)
 
-		Frame.MouseButton1Click:Connect(function()
-			settingTable[key] = not settingTable[key]
-			Status.Text = settingTable[key] and "开启" or "关闭"
-			Status.TextColor3 = settingTable[key] and Color3(0,255,0) or Color3(255,0,0) -- 已修复
-            if key == "SilentAim" then SilentAimHook(settingTable[key]) end
-		end)
-	end
-	
-	local function CreateSlider(parent, text, settingTable, key, min, max, step)
-		local Frame = Instance("Frame")
-		Frame.Size = UDim2(1,0,0,50)
-		Frame.BackgroundTransparency = 1
-		Frame.Parent = parent
+local AimTab = Window:CreateTab("自瞄设置", 4483345998)
+local ESPTab = Window:CreateTab("透视视觉", 4483345998)
+local MiscTab = Window:CreateTab("玩家杂项", 4483345998)
 
-		local Label = Instance("TextLabel", Frame)
-		Label.Size = UDim2(1, 0, 0, 20)
-		Label.BackgroundTransparency = 1
-		Label.Font = Enum.Font.Gotham
-		Label.TextColor3 = Color3(220,220,220) -- 已修复
-		Label.TextXAlignment = Enum.TextXAlignment.Left
-		
-		local SliderFrame = Instance("Frame", Frame)
-		SliderFrame.Size = UDim2(1, 0, 0, 10)
-		SliderFrame.Position = UDim2(0,0,0,25)
-		SliderFrame.BackgroundColor3 = Color3(40,40,40) -- 已修复
-		Instance("UICorner", SliderFrame).CornerRadius = UDim(0,5)
-		
-		local Progress = Instance("Frame", SliderFrame)
-		Progress.BackgroundColor3 = Color3(255,0,0) -- 已修复
-		Instance("UICorner", Progress).CornerRadius = UDim(0,5)
+-- 自瞄页面
+AimTab:CreateToggle({
+    Name = "启用自瞄 (按住右键)",
+    CurrentValue = false,
+    Callback = function(v) Settings.Aimbot.Enabled = v end
+})
+AimTab:CreateToggle({
+    Name = "不瞄队友 (强制)",
+    CurrentValue = true,
+    Callback = function(v) Settings.Aimbot.TeamCheck = v end
+})
+AimTab:CreateToggle({
+    Name = "墙体检测 (不瞄墙后)",
+    CurrentValue = false,
+    Callback = function(v) Settings.Aimbot.WallCheck = v end
+})
+AimTab:CreateSlider({
+    Name = "自瞄范围 (FOV)",
+    Range = {10, 800},
+    Increment = 10,
+    CurrentValue = 150,
+    Callback = function(v) Settings.Aimbot.FOV = v end
+})
+AimTab:CreateSlider({
+    Name = "平滑度 (0=暴力, 0.9=缓慢)",
+    Range = {0, 0.9},
+    Increment = 0.1,
+    CurrentValue = 0.5,
+    Callback = function(v) Settings.Aimbot.Smoothness = v end
+})
 
-		local Handle = Instance("TextButton", SliderFrame)
-		Handle.Size = UDim2(0,16,0,16)
-		Handle.Position = UDim2(0, -8, 0.5, -8)
-		Handle.BackgroundColor3 = Color3(255,255,255) -- 已修复
-		Handle.Text = ""
-		Instance("UICorner", Handle).CornerRadius = UDim(1,0)
-		
-		local function UpdateSlider(value)
-			local percentage = (value - min) / (max-min)
-			Progress.Size = UDim2(percentage, 0, 1, 0)
-			Handle.Position = UDim2(percentage, -8, 0.5, -8)
-			Label.Text = string.format("%s: %.2f", text, value)
-			settingTable[key] = value
-		end
+-- 透视页面
+ESPTab:CreateToggle({
+    Name = "启用透视 (总开关)",
+    CurrentValue = false,
+    Callback = function(v) Settings.ESP.Enabled = v end
+})
+ESPTab:CreateSection("颜色设置")
+ESPTab:CreateToggle({
+    Name = "显示队友 (开启可看队友)",
+    CurrentValue = true,
+    Callback = function(v) Settings.ESP.ShowTeammates = v end
+})
+ESPTab:CreateColorPicker({
+    Name = "敌人颜色 (默认红)",
+    Color = Color3.fromRGB(255, 40, 40),
+    Callback = function(v) Settings.ESP.EnemyColor = v end
+})
+ESPTab:CreateColorPicker({
+    Name = "队友颜色 (默认绿)",
+    Color = Color3.fromRGB(40, 255, 40),
+    Callback = function(v) Settings.ESP.TeamColor = v end
+})
+ESPTab:CreateSection("透视项目")
+ESPTab:CreateToggle({
+    Name = "方框 (Box)",
+    CurrentValue = false,
+    Callback = function(v) Settings.ESP.Boxes = v end
+})
+ESPTab:CreateToggle({
+    Name = "骨骼 (Skeleton)",
+    CurrentValue = false,
+    Callback = function(v) Settings.ESP.Skeleton = v end
+})
+ESPTab:CreateToggle({
+    Name = "射线 (Tracers)",
+    CurrentValue = false,
+    Callback = function(v) Settings.ESP.Tracers = v end
+})
+ESPTab:CreateToggle({
+    Name = "名字 (Names)",
+    CurrentValue = false,
+    Callback = function(v) Settings.ESP.Names = v end
+})
+ESPTab:CreateToggle({
+    Name = "血条 (Health)",
+    CurrentValue = false,
+    Callback = function(v) Settings.ESP.Health = v end
+})
 
-		UpdateSlider(settingTable[key])
+-- 杂项页面
+MiscTab:CreateSlider({
+    Name = "移动速度 (WalkSpeed)",
+    Range = {16, 250},
+    Increment = 1,
+    CurrentValue = 16,
+    Callback = function(v)
+        Settings.Misc.WalkSpeed = v
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.WalkSpeed = v
+        end
+    end
+})
 
-		Handle.MouseButton1Down:Connect(function()
-			local move_conn, release_conn
-			move_conn = UserInputService.InputChanged:Connect(function(input)
-				if input.UserInputType == Enum.UserInputType.MouseMovement then
-					local relativePos = (input.Position.X - SliderFrame.AbsolutePosition.X) / SliderFrame.AbsoluteSize.X
-					local newValue = mathclamp(min + (max-min) * relativePos, min, max)
-					newValue = math.floor(newValue / step + 0.5) * step
-					UpdateSlider(newValue)
-				end
-			end)
-			release_conn = UserInputService.InputEnded:Connect(function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 then
-					move_conn:Disconnect()
-					release_conn:Disconnect()
-				end
-			end)
-		end)
-	end
+MiscTab:CreateSlider({
+    Name = "跳跃高度 (JumpPower)",
+    Range = {50, 300},
+    Increment = 1,
+    CurrentValue = 50,
+    Callback = function(v)
+        Settings.Misc.JumpPower = v
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.JumpPower = v
+        end
+    end
+})
 
-	local function CreateKeybind(parent, text, settingTable, key)
-		local Frame = Instance("Frame")
-		Frame.Size = UDim2(1,0,0,30)
-		Frame.BackgroundColor3 = Color3(40,40,40) -- 已修复
-		Frame.Parent = parent
-		Instance("UICorner", Frame).CornerRadius = UDim(0,5)
+-- 重生后保持属性
+LocalPlayer.CharacterAdded:Connect(function(Char)
+    task.wait(1)
+    if Char:FindFirstChild("Humanoid") then
+        Char.Humanoid.WalkSpeed = Settings.Misc.WalkSpeed
+        Char.Humanoid.JumpPower = Settings.Misc.JumpPower
+    end
+end)
 
-		local Label = Instance("TextLabel", Frame)
-		Label.Size = UDim2(0.5, 0, 1, 0)
-		Label.Position = UDim2(0, 10, 0, 0)
-		Label.BackgroundTransparency = 1
-		Label.Text = text
-		Label.TextColor3 = Color3(220,220,220) -- 已修复
-		Label.Font = Enum.Font.Gotham
-		Label.TextXAlignment = Enum.TextXAlignment.Left
-
-		local KeyButton = Instance("TextButton", Frame)
-		KeyButton.Size = UDim2(0.5, -10, 1, -10)
-		KeyButton.Position = UDim2(0.5, 0, 0.5, -10)
-		KeyButton.BackgroundColor3 = Color3(30,30,30) -- 已修复
-		KeyButton.TextColor3 = Color3(255,255,255) -- 已修复
-		KeyButton.Font = Enum.Font.GothamBold
-		KeyButton.Text = tostring(settingTable[key])
-		Instance("UICorner", KeyButton).CornerRadius = UDim(0,4)
-		
-		KeyButton.MouseButton1Click:Connect(function()
-			KeyButton.Text = "..."
-			local conn = UserInputService.InputBegan:Connect(function(input, gpe)
-				if gpe then return end
-				local keyName
-				if input.UserInputType == Enum.UserInputType.MouseButton1 then keyName = "MouseButton1"
-				elseif input.UserInputType == Enum.UserInputType.MouseButton2 then keyName = "MouseButton2"
-				elseif input.UserInputType == Enum.UserInputType.MouseButton3 then keyName = "MouseButton3"
-				else keyName = input.KeyCode.Name end
-				
-				settingTable[key] = keyName
-				KeyButton.Text = keyName
-				conn:Disconnect()
-			end)
-		end)
-	end
-	
-	local mainPage = CreateTab("主要")
-	local visualsPage = CreateTab("视觉")
-	local miscPage = CreateTab("杂项")
-
-	CreateToggle(mainPage, "启用自瞄", Environment.Settings.Main, "Enabled")
-	CreateKeybind(mainPage, "自瞄按键", Environment.Settings.Main, "TriggerKey")
-	CreateToggle(mainPage, "切换模式", Environment.Settings.Main, "Toggle")
-	CreateToggle(mainPage, "队友检查", Environment.Settings.Aimbot, "TeamCheck")
-	CreateToggle(mainPage, "穿墙检查 (已优化)", Environment.Settings.Aimbot, "WallCheck")
-	CreateToggle(mainPage, "静默瞄准", Environment.Settings.Aimbot, "SilentAim")
-	CreateToggle(mainPage, "移动预测", Environment.Settings.Aimbot, "Prediction")
-	CreateSlider(mainPage, "子弹速度", Environment.Settings.Aimbot, "BulletSpeed", 0, 2000, 50)
-	CreateToggle(mainPage, "启用扳机", Environment.Settings.Triggerbot, "Enabled")
-	CreateKeybind(mainPage, "扳机按键", Environment.Settings.Triggerbot, "TriggerKey")
-	
-	CreateToggle(visualsPage, "启用视野圈", Environment.Settings.Visuals.FOV, "Enabled")
-	CreateToggle(visualsPage, "显示视野圈", Environment.Settings.Visuals.FOV, "Visible")
-	CreateSlider(visualsPage, "视野圈半径", Environment.Settings.Visuals.FOV, "Amount", 10, 500, 5)
-	CreateSlider(visualsPage, "视野圈边数", Environment.Settings.Visuals.FOV, "Sides", 3, 100, 1)
-	CreateToggle(visualsPage, "启用锁定指示", Environment.Settings.Visuals.LockIndicator, "Enabled")
-
-	CreateSlider(miscPage, "瞄准平滑", Environment.Settings.Misc, "Smoothing", 0, 1, 0.01)
-	CreateToggle(miscPage, "第三人称瞄准", Environment.Settings.Misc, "ThirdPerson")
-	CreateSlider(miscPage, "第三人称灵敏度", Environment.Settings.Misc, "ThirdPersonSensitivity", 0.1, 10, 0.1)
-
-	local function SwitchTab(selected)
-		for _, v in ipairs(Pages) do
-			local isSelected = v.Button == selected
-			v.Page.Visible = isSelected
-			v.Button.BackgroundColor3 = isSelected and Color3(40,40,40) or Color3(25,25,25) -- 已修复
-			v.Button.TextColor3 = isSelected and Color3(255,255,255) or Color3(180,180,180) -- 已修复
-		end
-	end
-
-	for _, v in ipairs(Pages) do
-		v.Button.MouseButton1Click:Connect(function()
-			SwitchTab(v.Button)
-		end)
-	end
-	
-	Instance("UIListLayout", TabsFrame).FillDirection = Enum.FillDirection.Horizontal
-	
-	SwitchTab(Pages[1].Button)
-
-	AimbotUI.Parent = PlayerGui
-end
-
---// ================== 脚本控制 ==================
-
-local function Load()
-	CreateUI()
-
-	ServiceConnections.RenderStepped = RunService.RenderStepped:Connect(MainLoop)
-
-	ServiceConnections.InputBegan = UserInputService.InputBegan:Connect(function(input, gpe)
-		if gpe or Typing then return end
-		local keyName = input.KeyCode.Name
-		local inputType = input.UserInputType.Name
-
-		if keyName == Environment.Settings.Main.TriggerKey or inputType == Environment.Settings.Main.TriggerKey then
-			if Environment.Settings.Main.Toggle then
-				Running = not Running
-				if not Running then CancelLock() end
-			else
-				Running = true
-			end
-		end
-	end)
-
-	ServiceConnections.InputEnded = UserInputService.InputEnded:Connect(function(input, gpe)
-		if gpe or Typing then return end
-		local keyName = input.KeyCode.Name
-		local inputType = input.UserInputType.Name
-
-		if not Environment.Settings.Main.Toggle then
-			if keyName == Environment.Settings.Main.TriggerKey or inputType == Environment.Settings.Main.TriggerKey then
-				Running = false
-				CancelLock()
-			end
-		end
-	end)
-	
-	ServiceConnections.TypingStarted = UserInputService.TextBoxFocused:Connect(function() Typing = true; CancelLock() end)
-	ServiceConnections.TypingEnded = UserInputService.TextBoxFocusReleased:Connect(function() Typing = false end)
-end
-
-Environment.Functions = {}
-function Environment.Functions:Exit()
-	for _, v in pairs(ServiceConnections) do
-		v:Disconnect()
-	end
-	if Environment.FOVCircle and Environment.FOVCircle.Remove then Environment.FOVCircle:Remove() end
-	if AimbotUI then AimbotUI:Destroy() end
-    SilentAimHook(false)
-	getgenv().Aimbot = nil
-end
-
---// 启动脚本
-Load()
-
-print("Aimbot [v2.2 噩梦版] 加载成功。所有已知问题均已修复。")
+Rayfield:Notify({
+    Title = "脚本加载成功",
+    Content = "按 K 键可隐藏/显示菜单",
+    Duration = 5,
+    Image = 4483345998,
+})
